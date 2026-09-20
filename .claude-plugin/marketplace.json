@@ -1,0 +1,13 @@
+{
+  "name": "comment-warden",
+  "owner": {
+    "name": "hale"
+  },
+  "plugins": [
+    {
+      "name": "comment-warden",
+      "source": "./",
+      "description": "Silently strips comments that stop no edit; keeps the ones tagged TRIPWIRE: or CONTEXT:. AST-based, projection-safe."
+    }
+  ]
+}

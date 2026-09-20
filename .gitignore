@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+evals/*/results/
+evals/results/
+result
+.direnv/
+/bin/
+.claude/agent-memory/

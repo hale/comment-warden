@@ -1,0 +1,6 @@
+{
+  "name": "comment-warden",
+  "version": "0.1.0",
+  "description": "Silently strips comments that stop no edit; keeps the ones tagged TRIPWIRE: or CONTEXT:. AST-based, projection-safe.",
+  "author": { "name": "hale" }
+}

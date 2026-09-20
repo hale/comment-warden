@@ -1,0 +1,52 @@
+name: Release
+
+# Creates the GitHub release for the tag, then cross-compiles a static binary
+# per popular target and attaches it, so a repo pulling in the plugin gets a
+# prebuilt binary for its platform rather than compiling the grammar crates.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  # upload-rust-binary-action uploads to an existing release; a git tag is not
+  # one, so create it first or every upload fails with "release not found".
+  create-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: taiki-e/create-gh-release-action@eba8ea96c86cca8a37f1b56e94b4d13301fba651 # v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    needs: create-release
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-14
+          - target: x86_64-apple-darwin
+            os: macos-14
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # taiki-e builds (installing `cross` for the linux targets, whose Docker
+      # images carry the C toolchain the tree-sitter grammar crates need),
+      # archives, and uploads the binary to the release created above.
+      - uses: taiki-e/upload-rust-binary-action@f0d45ae91ee7b8ee928de7a9d04d893a08bcbec6 # v1
+        with:
+          bin: comment-warden
+          target: ${{ matrix.target }}
+          archive: comment-warden-$target
+          token: ${{ secrets.GITHUB_TOKEN }}
