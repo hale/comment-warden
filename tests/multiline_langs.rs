@@ -1,5 +1,7 @@
+use comment_warden::comment::comment_body;
 use comment_warden::config::Config;
-use comment_warden::lang::LangId;
+use comment_warden::lang::{LangId, spec_for};
+use comment_warden::parse::parse;
 use comment_warden::strip::{FileReport, process};
 
 fn strip(id: LangId, src: &str) -> FileReport {
@@ -110,6 +112,117 @@ fn nix_multiline_context_note_survives_whole() {
 }
 
 #[test]
+fn ruby_multiline_tripwire_note_survives_whole() {
+    let src = "# TRIPWIRE: this retry count matches the upstream timeout\n# lowering it makes the call fail before the server answers\nx = 1\n";
+    let report = strip(LangId::Ruby, src);
+    assert_eq!(report.stripped, 0);
+    assert!(report.new_source.is_none());
+    let out = stripped_src(LangId::Ruby, src);
+    assert!(out.contains("# TRIPWIRE: this retry count matches the upstream timeout"));
+    assert!(out.contains("# lowering it makes the call fail before the server answers"));
+}
+
+#[test]
+fn scss_multiline_tripwire_note_survives_whole() {
+    let src = "// TRIPWIRE: this z-index sits above the sticky header\n// lowering it hides the dropdown behind it\n.a { color: red; }\n";
+    let report = strip(LangId::Scss, src);
+    assert_eq!(report.stripped, 0);
+    assert!(report.new_source.is_none());
+    let out = stripped_src(LangId::Scss, src);
+    assert!(out.contains("// TRIPWIRE: this z-index sits above the sticky header"));
+    assert!(out.contains("// lowering it hides the dropdown behind it"));
+}
+
+fn block_bodies(id: LangId, src: &str) -> Vec<String> {
+    let spec = spec_for(id);
+    parse(id, src, false, Config::empty().tags())
+        .unwrap()
+        .comments
+        .iter()
+        .filter(|c| c.shape == comment_warden::comment::CommentShape::Block)
+        .map(|c| {
+            comment_body(
+                &c.text,
+                spec.line_prefixes,
+                spec.block_open,
+                spec.block_close,
+            )
+            .to_string()
+        })
+        .collect()
+}
+
+#[test]
+fn ruby_begin_end_block_body_excludes_the_closer() {
+    let src = "=begin\nTRIPWIRE: the closer is not part of the body\n=end\nx = 1\n";
+    assert_eq!(
+        block_bodies(LangId::Ruby, src),
+        vec!["TRIPWIRE: the closer is not part of the body".to_string()]
+    );
+}
+
+#[test]
+fn ruby_begin_end_untagged_block_leaves_no_closer_fragment() {
+    let src = "=begin\nuntagged block prose\n=end\nx = 1\n";
+    let report = strip(LangId::Ruby, src);
+    assert_eq!(report.stripped, 1);
+    let out = stripped_src(LangId::Ruby, src);
+    assert_eq!(out, "x = 1\n");
+    assert!(!out.contains("=end"));
+    assert!(!out.contains("=begin"));
+    for (_, line) in report
+        .untagged_lines
+        .iter()
+        .chain(report.unclassified_lines.iter())
+    {
+        assert!(
+            !line.contains("=end"),
+            "closer leaked into a report line: {line}"
+        );
+    }
+}
+
+#[test]
+fn c_style_block_body_excludes_the_closer_and_stray_stars() {
+    let plain = "/* a plain block body */\nfn main() {}\n";
+    assert_eq!(
+        block_bodies(LangId::Rust, plain),
+        vec!["a plain block body".to_string()]
+    );
+    let starred = "/*** a starred block body ***/\nfn main() {}\n";
+    assert_eq!(
+        block_bodies(LangId::Rust, starred),
+        vec!["a starred block body".to_string()]
+    );
+    let banged = "/* a body ending in a bang! */\nfn main() {}\n";
+    assert_eq!(
+        block_bodies(LangId::Rust, banged),
+        vec!["a body ending in a bang!".to_string()]
+    );
+}
+
+#[test]
+fn ruby_begin_end_block_is_one_comment_not_a_line_run_leader() {
+    let src = "=begin\nuntagged block prose\n=end\n# TRIPWIRE: an independent tagged line below the block\nx = 1\n";
+    let report = strip(LangId::Ruby, src);
+    assert_eq!(report.stripped, 1);
+    let out = stripped_src(LangId::Ruby, src);
+    assert!(!out.contains("untagged block prose"));
+    assert!(out.contains("# TRIPWIRE: an independent tagged line below the block"));
+}
+
+#[test]
+fn scss_block_and_line_comment_forms_are_judged_independently() {
+    let src =
+        "/* TRIPWIRE: the block form is tagged */\n// untagged line prose\n.a { color: red; }\n";
+    let report = strip(LangId::Scss, src);
+    assert_eq!(report.stripped, 1);
+    let out = stripped_src(LangId::Scss, src);
+    assert!(out.contains("/* TRIPWIRE: the block form is tagged */"));
+    assert!(!out.contains("// untagged line prose"));
+}
+
+#[test]
 fn rust_multiline_untagged_block_is_fully_stripped() {
     let src = "// this just explains the code below\n// which needs no explanation\nfn main() {}\n";
     let out = stripped_src(LangId::Rust, src);
@@ -142,6 +255,20 @@ fn nix_multiline_untagged_block_is_fully_stripped() {
     let src = "# obvious prose one\n# obvious prose two\n{ pkgs }: pkgs.hello\n";
     let out = stripped_src(LangId::Nix, src);
     assert_eq!(out, "{ pkgs }: pkgs.hello\n");
+}
+
+#[test]
+fn ruby_multiline_untagged_block_is_fully_stripped() {
+    let src = "# obvious prose one\n# obvious prose two\nx = 1\n";
+    let out = stripped_src(LangId::Ruby, src);
+    assert_eq!(out, "x = 1\n");
+}
+
+#[test]
+fn scss_multiline_untagged_block_is_fully_stripped() {
+    let src = "// obvious prose one\n// obvious prose two\n.a { color: red; }\n";
+    let out = stripped_src(LangId::Scss, src);
+    assert_eq!(out, ".a { color: red; }\n");
 }
 
 #[test]
@@ -229,4 +356,53 @@ fn tagged_leader_followed_by_a_second_tag_keeps_both() {
     let report = strip(LangId::Rust, src);
     assert_eq!(report.stripped, 0);
     assert!(report.new_source.is_none());
+}
+
+#[test]
+fn html_multiline_tripwire_note_survives_whole() {
+    let src = "<!-- TRIPWIRE: this z-index sits above the sticky header\n     lowering it hides the dropdown behind it -->\n<p>x</p>\n";
+    let report = strip(LangId::Html, src);
+    assert_eq!(report.stripped, 0);
+    assert!(report.new_source.is_none());
+}
+
+#[test]
+fn html_multiline_untagged_block_is_fully_stripped() {
+    let src = "<!-- obvious prose one\n     obvious prose two -->\n<p>x</p>\n";
+    let out = stripped_src(LangId::Html, src);
+    assert_eq!(out, "<p>x</p>\n");
+}
+
+#[test]
+fn html_comment_body_drops_both_delimiters() {
+    let spec = spec_for(LangId::Html);
+    let body = comment_body(
+        "<!-- TRIPWIRE: a note -->",
+        spec.line_prefixes,
+        spec.block_open,
+        spec.block_close,
+    );
+    assert_eq!(body, "TRIPWIRE: a note");
+}
+
+#[test]
+fn erb_comment_body_drops_both_delimiters() {
+    let spec = spec_for(LangId::Erb);
+    let body = comment_body(
+        "<%# TRIPWIRE: a note %>",
+        spec.line_prefixes,
+        spec.block_open,
+        spec.block_close,
+    );
+    assert_eq!(body, "TRIPWIRE: a note");
+}
+
+#[test]
+fn erb_multiline_tripwire_directive_is_one_comment() {
+    let src = "<%# TRIPWIRE: this partial is rendered by two mailers\n    renaming a local here breaks the other one %>\n<h1>x</h1>\n";
+    let report = strip(LangId::Erb, src);
+    assert_eq!(report.untagged_found, 0);
+    assert_eq!(report.unclassified, 0);
+    let parsed = parse(LangId::Erb, src, false, Config::empty().tags()).unwrap();
+    assert_eq!(parsed.comments.len(), 1);
 }

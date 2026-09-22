@@ -1,0 +1,22 @@
+<!-- TRIPWIRE: this fixture is the html positive control for the gate. Delete
+     the untagged comments below and a build of the checker that cannot see
+     html at all still passes. -->
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <!-- CONTEXT: the block form is the only comment html has -->
+    <style>
+      /* a css comment the html grammar reads as raw text, not a comment */
+      body { color: red; }
+    </style>
+    <script>
+      // a js comment the html grammar reads as raw text, not a comment
+      const a = 1;
+    </script>
+  </head>
+  <body>
+    <!-- ordinary prose that explains nothing -->
+    <p title="<!-- not a comment, just an attribute value -->">text</p>
+    <p>more text</p> <!-- a trailing untagged comment -->
+  </body>
+</html>

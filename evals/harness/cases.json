@@ -1,0 +1,117 @@
+{
+  "policy_version": "three-tests-2026-09-21",
+  "provenance": "Every case is invented. No snippet, identifier, ticket, library or comment here comes from a real codebase; each case is written to probe one known failure mode of the phase 3 classify decision.",
+  "note": "Each file is self-contained and carries exactly one comment under judgement, so the classification is never confounded by a second comment in the same file.",
+  "cases": [
+    {
+      "id": "restates-method-name",
+      "probes": "test 1",
+      "difficulty": "easy",
+      "source": "app/lib/catalog/index.rb:47",
+      "filename": "index.rb",
+      "reference": "drop",
+      "reference_note": "`reload!` over `@shards.values` is the sentence; the comment adds nothing.",
+      "comment": "    # Reloads every shard in the catalog index.",
+      "snippet": "module Catalog\n  class Index\n    def preload!\n      @shards.values.each(&:load)\n    end\n\n    # Reloads every shard in the catalog index.\n    def reload!\n      @shards.values.each(&:reload!)\n    end\n  end\nend\n"
+    },
+    {
+      "id": "order-for-stable-results",
+      "probes": "test 1 + test 2",
+      "difficulty": "borderline",
+      "source": "app/controllers/api/orders_controller.rb:18",
+      "filename": "orders_controller.rb",
+      "reference": "drop",
+      "reference_note": "`.order(:id)` states the ordering; 'for stable results' is the generic reason anyone orders, and never says what depends on stability.",
+      "comment": "      .order(:id) # for stable results",
+      "snippet": "class Api::OrdersController < Api::BaseController\n  def index\n    orders = policy_scope(current_workspace.orders)\n    latest_status_by_order_id = StatusChange\n      .where(order_id: orders.map(&:id))\n      .order(:id) # for stable results\n      .pluck(:order_id, :status)\n      .each_with_object({}) { |(id, status), memo|\n        memo[id] ||= status\n      }\n\n    render json: latest_status_by_order_id\n  end\nend\n"
+    },
+    {
+      "id": "restates-sort-clause",
+      "probes": "test 1",
+      "difficulty": "easy",
+      "source": "app/controllers/api/snapshots_controller.rb:23",
+      "filename": "snapshots_controller.rb",
+      "reference": "drop",
+      "reference_note": "`sort_by { -s[\"revision\"] }` is literally 'desc by revision'.",
+      "comment": "      .sort_by { |s| -s[\"revision\"] } # desc by revision",
+      "snippet": "class Api::SnapshotsController < Api::BaseController\n  def index\n    json = snapshot_scope\n      .map { |s| snapshot_as_json(s) }\n      .sort_by { |s| -s[\"revision\"] } # desc by revision\n\n    render json: json\n  end\nend\n"
+    },
+    {
+      "id": "vendor-quota-and-newline",
+      "probes": "test 3 (long and dense)",
+      "difficulty": "easy",
+      "source": "app/lib/billing/invoice_exporter.rb:80",
+      "filename": "invoice_exporter.rb",
+      "reference": "keep-context",
+      "reference_note": "Names two specific behaviours of a third-party API (a rejected row still costs quota, and the parser needs the trailing newline) which together explain why the obvious per-row loop was rejected. Unrecoverable from the code.",
+      "comment": "      # NOTE(jlq): Batching a whole page into one request instead of the obvious per-row calls, because the Sprocket Ledger API charges a row against the minute quota even when it rejects that row, so per-row retries lock the account out for the rest of the minute. The trailing newline is not optional either: their parser treats a body without it as truncated and silently drops the last row.",
+      "snippet": "module Billing\n  class InvoiceExporter\n    private\n\n    def push_page(rows)\n      # NOTE(jlq): Batching a whole page into one request instead of the obvious per-row calls, because the Sprocket Ledger API charges a row against the minute quota even when it rejects that row, so per-row retries lock the account out for the rest of the minute. The trailing newline is not optional either: their parser treats a body without it as truncated and silently drops the last row.\n      response = ledger_client.post(\n        \"/v3/invoice-rows\",\n        body: rows.map(&:to_csv).join(\"\\n\") + \"\\n\"\n      )\n      response.status == 200 or\n        raise ExportRejected, response.body\n    end\n  end\nend\n"
+    },
+    {
+      "id": "session-string-key-ticket",
+      "probes": "test 2 (specific hidden fact)",
+      "difficulty": "easy",
+      "source": "app/controllers/sessions_controller.rb:61",
+      "filename": "sessions_controller.rb",
+      "reference": "keep-tripwire",
+      "reference_note": "Guards a specific future edit (someone tidying the String key to a Symbol) with a named serializer behaviour and a ticket.",
+      "comment": "    # String key, not Symbol: the session store's JSON codec drops Symbol keys before readers see them (TICKET-1234).",
+      "snippet": "class SessionsController < ApplicationController\n  def create\n    user = authenticate_credentials!(params[:email], params[:password])\n    reset_session\n    # String key, not Symbol: the session store's JSON codec drops Symbol keys before readers see them (TICKET-1234).\n    session[\"last_workspace_id\"] = user.default_workspace_id\n    redirect_to params[:return_to] || dashboard_path(user)\n  end\nend\n"
+    },
+    {
+      "id": "handrolled-scan-not-matcher",
+      "probes": "test 2 (why the obvious approach was avoided)",
+      "difficulty": "easy",
+      "source": "app/lib/search/key_prefix.rb:11",
+      "filename": "key_prefix.rb",
+      "reference": "keep-tripwire",
+      "reference_note": "Nothing in `raw.index(\":\")` says the library matcher was considered and rejected, or what it costs; the note is what stops a future \"simplify this\" edit reaching for it.",
+      "comment": "      # Scan for the delimiter by hand rather than handing the key to Patternkit::Matcher, which restarts the whole pattern at every candidate delimiter and pins a worker for seconds on a 200-character key.",
+      "snippet": "module Search\n  class KeyPrefix\n    def split(raw)\n      return [nil, raw] if raw.blank?\n\n      # Scan for the delimiter by hand rather than handing the key to Patternkit::Matcher, which restarts the whole pattern at every candidate delimiter and pins a worker for seconds on a 200-character key.\n      idx = raw.index(\":\")\n      return [nil, raw] unless idx\n\n      [raw[0...idx], raw[(idx + 1)..]]\n    end\n  end\nend\n"
+    },
+    {
+      "id": "basename-path-traversal",
+      "probes": "test 1 against a well-named method",
+      "difficulty": "borderline",
+      "source": "app/lib/reports/archive_writer.rb:202",
+      "filename": "archive_writer.rb",
+      "reference": "drop",
+      "reference_note": "Contested. The method is already named `safe_entry_name` and its body is `File.basename`, so test 1 bites; 'to prevent path traversal attacks' is also the generic reason anyone calls basename on a caller-supplied name, so test 2 bites too. A keep is defensible on security-tripwire grounds, so either answer can be right if the reasoning engages the method name.",
+      "comment": "      # Use File.basename to prevent path traversal attacks",
+      "snippet": "module Reports\n  class ArchiveWriter\n    private\n\n    def safe_entry_name(name, fallback:)\n      # Use File.basename to prevent path traversal attacks\n      File.basename(name.presence || fallback)\n    end\n  end\nend\n"
+    },
+    {
+      "id": "weakly-worded-only-explanation",
+      "probes": "badly worded but sole explanation of a non-obvious construction",
+      "difficulty": "borderline",
+      "source": "app/lib/safe_paginator.rb:28",
+      "filename": "safe_paginator.rb",
+      "reference": "keep-context",
+      "reference_note": "The wording hedges ('for some reason', 'I think'), but it is the only record that the idiomatic `.exists?` was tried and failed, which is the whole reason for the strange select/limit/present? shape. Rewrite the wording, do not lose the fact.",
+      "comment": "      # the more idiomatic .exists? doesn't work once the relation is grouped, for some reason. TODO: why?\n      # but, select(\"1 as one\").limit(1).present? *should* be equivalent. I think.",
+      "snippet": "class SafePaginator < BasePaginator\n  def assert_no_silent_truncation(relation)\n    unless @page_params_given\n      rows_read = @page * @per_page\n\n      # the more idiomatic .exists? doesn't work once the relation is grouped, for some reason. TODO: why?\n      # but, select(\"1 as one\").limit(1).present? *should* be equivalent. I think.\n      if relation.offset(rows_read).unscope(:order, :select).select(\"1 as one\").limit(1).present?\n        raise PageOutOfRange, @page\n      end\n    end\n  end\nend\n"
+    },
+    {
+      "id": "long-comment-mixed-density",
+      "probes": "test 3 (length as symptom)",
+      "difficulty": "borderline",
+      "source": "app/lib/storefront/cart_totals.rb:149",
+      "filename": "cart_totals.rb",
+      "reference": "keep-context",
+      "reference_note": "Most of the block restates the code (the sum, the select, the nil guard), but the last clause is a genuinely hidden fact: BigDecimal serializes to JSON as a quoted string and breaks the web client's `.toFixed()`. A keep here must collapse to that one fact; keeping the whole block is the failure this case looks for.",
+      "comment": "      # Sum the stored amount columns — no price list lookup needed at render time.\n      # line_items is already loaded by the caller; select avoids a second query.\n      # amount_cents / amount_parts can be nil for carts imported from the old\n      # storefront, for gift wrapping, and for shipping-only lines — skip those rows.\n      #\n      # Sum as BigDecimal for accuracy, then cast to Float at the boundary:\n      # BigDecimal serializes to JSON as a quoted string, which breaks the web\n      # client's `.toFixed()` calls. Float gives 15-17 digits, plenty for display.",
+      "snippet": "module Storefront\n  class CartTotals\n    def line_rollup(line_items)\n      # Sum the stored amount columns — no price list lookup needed at render time.\n      # line_items is already loaded by the caller; select avoids a second query.\n      # amount_cents / amount_parts can be nil for carts imported from the old\n      # storefront, for gift wrapping, and for shipping-only lines — skip those rows.\n      #\n      # Sum as BigDecimal for accuracy, then cast to Float at the boundary:\n      # BigDecimal serializes to JSON as a quoted string, which breaks the web\n      # client's `.toFixed()` calls. Float gives 15-17 digits, plenty for display.\n      acc = line_items.select { |l| l.billable? && l.amount_cents.present? }\n        .each_with_object({goods: 0, shipping: 0, total: 0}) do |l, sum|\n          parts = l.amount_parts || {}\n          sum[:goods] += (parts[\"goods\"] || 0).to_d\n          sum[:shipping] += (parts[\"shipping\"] || 0).to_d\n          sum[:total] += l.amount_cents.to_d\n        end\n\n      acc.transform_values { |v| v.to_f }\n    end\n  end\nend\n"
+    },
+    {
+      "id": "empty-rescue-justification",
+      "probes": "test 2 (generic fail-open vs. specific consequence)",
+      "difficulty": "borderline",
+      "source": "app/lib/reports/chart_palette.rb:33",
+      "filename": "chart_palette.rb",
+      "reference": "keep-context",
+      "reference_note": "Close to the generic fail-open pattern the policy calls decoration, but it does name the specific surviving behaviour (the default palette still applies) and an empty rescue body otherwise reads as an unfinished edit. Weak keep; a well-argued drop that cites test 2 is also reasonable.",
+      "comment": "      # Skip if brand_color is malformed — the default palette still applies",
+      "snippet": "module Reports\n  class ChartPalette\n    def apply_brand_colors(palette, workspace)\n      if workspace.brand_color.present?\n        palette.accent = Color.parse(workspace.brand_color)\n      end\n\n      if workspace.brand_color_secondary.present?\n        palette.secondary = Color.parse(workspace.brand_color_secondary)\n      end\n    rescue Color::ParseError\n      # Skip if brand_color is malformed — the default palette still applies\n    end\n  end\nend\n"
+    }
+  ]
+}

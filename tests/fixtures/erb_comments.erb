@@ -1,0 +1,12 @@
+<%# TRIPWIRE: this fixture is the erb positive control for the gate. Delete the
+    untagged comments below and a build of the checker that cannot see erb at
+    all still passes. %>
+<%# CONTEXT: the comment directive is the only comment form erb names %>
+<%# ordinary prose that explains nothing %>
+<h1><%= page_title %></h1>
+<%= "a # hash inside a ruby string, not a comment" %>
+<% items.each do |item| %>
+  <p><%= item.name %></p>
+<% end %>
+<!-- an html comment, which the erb grammar reads as content -->
+<p>done</p> <%# a trailing untagged comment %>

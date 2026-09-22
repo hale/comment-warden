@@ -6,3 +6,4 @@ result
 .direnv/
 /bin/
 .claude/agent-memory/
+/target/

@@ -196,9 +196,14 @@ fn verdict_of(id: LangId, comment: &Comment, is_test_target: bool, config: &Conf
         return Verdict::Exempt(Exemption::DocSurface);
     }
 
-    let body = comment_body(&comment.text, spec.line_prefixes, spec.block_open);
+    let body = comment_body(
+        &comment.text,
+        spec.line_prefixes,
+        spec.block_open,
+        spec.block_close,
+    );
 
-    if is_directive(body) {
+    if is_directive(body) || config.matches_exempt_pattern(body) {
         return Verdict::Exempt(Exemption::Directive);
     }
 
@@ -245,7 +250,7 @@ fn unclassified_rows(
             let in_unknown = unknown_spans
                 .iter()
                 .any(|&(lo, hi)| lo <= byte && byte < hi);
-            let body = comment_body(text, spec.line_prefixes, spec.block_open);
+            let body = comment_body(text, spec.line_prefixes, spec.block_open, spec.block_close);
             if in_unknown && !covered.contains(&row) && !is_tagged(body, config.tags()) {
                 rows.push((row, text.trim_end().to_string()));
             }

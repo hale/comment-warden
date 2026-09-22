@@ -16,6 +16,10 @@ pub enum LangId {
     Yaml,
     Toml,
     Css,
+    Scss,
+    Ruby,
+    Html,
+    Erb,
 }
 
 impl LangId {
@@ -35,6 +39,10 @@ impl LangId {
             "yaml" | "yml" => Self::Yaml,
             "toml" => Self::Toml,
             "css" => Self::Css,
+            "scss" => Self::Scss,
+            "ruby" => Self::Ruby,
+            "html" | "mjml" => Self::Html,
+            "erb" => Self::Erb,
             _ => return None,
         };
         Some(id)
@@ -56,6 +64,10 @@ impl LangId {
             "yaml" | "yml" => Self::Yaml,
             "toml" => Self::Toml,
             "css" => Self::Css,
+            "scss" => Self::Scss,
+            "rb" | "rake" | "gemspec" | "ru" => Self::Ruby,
+            "html" | "mjml" => Self::Html,
+            "erb" => Self::Erb,
             _ => return None,
         };
         Some(id)
@@ -74,6 +86,7 @@ pub struct LangSpec {
     pub doc_prefixes: DocPrefixes,
     pub line_prefixes: &'static [&'static str],
     pub block_open: Option<&'static str>,
+    pub block_close: Option<&'static str>,
 }
 
 const NO_DOC: DocPrefixes = DocPrefixes {
@@ -92,6 +105,7 @@ pub fn spec_for(id: LangId) -> LangSpec {
             },
             line_prefixes: &["//"],
             block_open: Some("/*"),
+            block_close: Some("*/"),
         },
         LangId::Swift => LangSpec {
             grammar: tree_sitter_swift::LANGUAGE.into(),
@@ -102,6 +116,7 @@ pub fn spec_for(id: LangId) -> LangSpec {
             },
             line_prefixes: &["//"],
             block_open: Some("/*"),
+            block_close: Some("*/"),
         },
         LangId::Nix => LangSpec {
             grammar: tree_sitter_nix::LANGUAGE.into(),
@@ -109,6 +124,7 @@ pub fn spec_for(id: LangId) -> LangSpec {
             doc_prefixes: NO_DOC,
             line_prefixes: &["#"],
             block_open: Some("/*"),
+            block_close: Some("*/"),
         },
         LangId::Bash => LangSpec {
             grammar: tree_sitter_bash::LANGUAGE.into(),
@@ -116,6 +132,7 @@ pub fn spec_for(id: LangId) -> LangSpec {
             doc_prefixes: NO_DOC,
             line_prefixes: &["#"],
             block_open: None,
+            block_close: None,
         },
         LangId::Hcl => LangSpec {
             grammar: tree_sitter_hcl::LANGUAGE.into(),
@@ -123,6 +140,7 @@ pub fn spec_for(id: LangId) -> LangSpec {
             doc_prefixes: NO_DOC,
             line_prefixes: &["#", "//"],
             block_open: Some("/*"),
+            block_close: Some("*/"),
         },
         LangId::Python => LangSpec {
             grammar: tree_sitter_python::LANGUAGE.into(),
@@ -130,6 +148,7 @@ pub fn spec_for(id: LangId) -> LangSpec {
             doc_prefixes: NO_DOC,
             line_prefixes: &["#"],
             block_open: None,
+            block_close: None,
         },
         LangId::TypeScript => LangSpec {
             grammar: tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
@@ -140,6 +159,7 @@ pub fn spec_for(id: LangId) -> LangSpec {
             },
             line_prefixes: &["//"],
             block_open: Some("/*"),
+            block_close: Some("*/"),
         },
         LangId::JavaScript => LangSpec {
             grammar: tree_sitter_javascript::LANGUAGE.into(),
@@ -150,6 +170,7 @@ pub fn spec_for(id: LangId) -> LangSpec {
             },
             line_prefixes: &["//"],
             block_open: Some("/*"),
+            block_close: Some("*/"),
         },
         LangId::Go => LangSpec {
             grammar: tree_sitter_go::LANGUAGE.into(),
@@ -157,6 +178,7 @@ pub fn spec_for(id: LangId) -> LangSpec {
             doc_prefixes: NO_DOC,
             line_prefixes: &["//"],
             block_open: Some("/*"),
+            block_close: Some("*/"),
         },
         LangId::C => LangSpec {
             grammar: tree_sitter_c::LANGUAGE.into(),
@@ -167,6 +189,7 @@ pub fn spec_for(id: LangId) -> LangSpec {
             },
             line_prefixes: &["//"],
             block_open: Some("/*"),
+            block_close: Some("*/"),
         },
         LangId::Cpp => LangSpec {
             grammar: tree_sitter_cpp::LANGUAGE.into(),
@@ -177,6 +200,7 @@ pub fn spec_for(id: LangId) -> LangSpec {
             },
             line_prefixes: &["//"],
             block_open: Some("/*"),
+            block_close: Some("*/"),
         },
         LangId::Yaml => LangSpec {
             grammar: tree_sitter_yaml::LANGUAGE.into(),
@@ -184,6 +208,7 @@ pub fn spec_for(id: LangId) -> LangSpec {
             doc_prefixes: NO_DOC,
             line_prefixes: &["#"],
             block_open: None,
+            block_close: None,
         },
         LangId::Toml => LangSpec {
             grammar: tree_sitter_toml_ng::LANGUAGE.into(),
@@ -191,6 +216,7 @@ pub fn spec_for(id: LangId) -> LangSpec {
             doc_prefixes: NO_DOC,
             line_prefixes: &["#"],
             block_open: None,
+            block_close: None,
         },
         LangId::Css => LangSpec {
             grammar: tree_sitter_css::LANGUAGE.into(),
@@ -198,6 +224,40 @@ pub fn spec_for(id: LangId) -> LangSpec {
             doc_prefixes: NO_DOC,
             line_prefixes: &[],
             block_open: Some("/*"),
+            block_close: Some("*/"),
+        },
+        LangId::Scss => LangSpec {
+            grammar: tree_sitter_scss::language(),
+            comment_kinds: &["comment", "js_comment"],
+            doc_prefixes: NO_DOC,
+            line_prefixes: &["//"],
+            block_open: Some("/*"),
+            block_close: Some("*/"),
+        },
+        LangId::Ruby => LangSpec {
+            grammar: tree_sitter_ruby::LANGUAGE.into(),
+            comment_kinds: &["comment"],
+            doc_prefixes: NO_DOC,
+            line_prefixes: &["#"],
+            block_open: Some("=begin"),
+            block_close: Some("=end"),
+        },
+        LangId::Html => LangSpec {
+            grammar: tree_sitter_html::LANGUAGE.into(),
+            comment_kinds: &["comment"],
+            doc_prefixes: NO_DOC,
+            line_prefixes: &[],
+            block_open: Some("<!--"),
+            block_close: Some("-->"),
+        },
+        LangId::Erb => LangSpec {
+            // TRIPWIRE: register comment_directive, not its inner `comment` child — the child covers only the text between `<%#` and `%>`, so stripping it leaves a bare `<%#%>` behind.
+            grammar: tree_sitter_embedded_template::LANGUAGE.into(),
+            comment_kinds: &["comment_directive"],
+            doc_prefixes: NO_DOC,
+            line_prefixes: &["#"],
+            block_open: Some("<%#"),
+            block_close: Some("%>"),
         },
     }
 }

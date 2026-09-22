@@ -11,6 +11,10 @@ fn fixture(name: &str) -> &'static str {
         "real_shebang.sh" => include_str!("fixtures/real_shebang.sh"),
         "nix_shebang.nix" => include_str!("fixtures/nix_shebang.nix"),
         "python_comments.py" => include_str!("fixtures/python_comments.py"),
+        "ruby_comments.rb" => include_str!("fixtures/ruby_comments.rb"),
+        "scss_comments.scss" => include_str!("fixtures/scss_comments.scss"),
+        "html_comments.html" => include_str!("fixtures/html_comments.html"),
+        "erb_comments.erb" => include_str!("fixtures/erb_comments.erb"),
         other => panic!("unknown fixture {other}"),
     }
 }
@@ -92,4 +96,79 @@ fn python_fixture_keeps_string_template() {
     assert!(out.contains("# TRIPWIRE: this fixture is the python positive control"));
     assert!(!out.contains("# ordinary prose that explains nothing"));
     assert!(!out.contains("# a trailing untagged comment"));
+}
+
+#[test]
+fn ruby_fixture_keeps_strings_shebang_and_tags() {
+    let (out, report) = strip_fixture(LangId::Ruby, "ruby_comments.rb");
+    assert!(out.starts_with("#!/usr/bin/env ruby\n"));
+    assert!(out.contains("\"# not a comment, just a string\""));
+    assert!(out.contains("# still just a string"));
+    assert!(out.contains("# TRIPWIRE: this fixture is the ruby positive control"));
+    assert!(out.contains("# CONTEXT: the =begin block below"));
+    assert!(out.contains("TRIPWIRE: this block form carries a tag and survives"));
+    assert!(!out.contains("an untagged block comment that the gate removes"));
+    assert!(!out.contains("# ordinary prose that explains nothing"));
+    assert!(!out.contains("# a trailing untagged comment"));
+    assert!(report.stripped >= 3);
+}
+
+#[test]
+fn scss_fixture_keeps_strings_and_both_comment_forms() {
+    let (out, report) = strip_fixture(LangId::Scss, "scss_comments.scss");
+    assert!(out.contains("\"// not a comment, just a string\""));
+    assert!(out.contains("\"/* also just a string */\""));
+    assert!(out.contains("// TRIPWIRE: this fixture is the scss positive control"));
+    assert!(out.contains("/* CONTEXT: the block form is the only comment css itself accepts */"));
+    assert!(!out.contains("// ordinary prose that explains nothing"));
+    assert!(!out.contains("an untagged block comment that the gate removes"));
+    assert!(!out.contains("// a trailing untagged comment"));
+    assert!(report.stripped >= 3);
+}
+
+#[test]
+fn html_fixture_keeps_attribute_values_raw_text_and_tags() {
+    let (out, report) = strip_fixture(LangId::Html, "html_comments.html");
+    assert!(out.contains("title=\"<!-- not a comment, just an attribute value -->\""));
+    assert!(out.contains("/* a css comment the html grammar reads as raw text"));
+    assert!(out.contains("// a js comment the html grammar reads as raw text"));
+    assert!(out.contains("<!-- TRIPWIRE: this fixture is the html positive control"));
+    assert!(out.contains("html at all still passes. -->"));
+    assert!(out.contains("<!-- CONTEXT: the block form is the only comment html has -->"));
+    assert!(!out.contains("ordinary prose that explains nothing"));
+    assert!(!out.contains("a trailing untagged comment"));
+    assert_eq!(report.stripped, 2);
+}
+
+#[test]
+fn erb_fixture_reports_untagged_directives_and_keeps_ruby_strings_and_tags() {
+    let src = fixture("erb_comments.erb");
+    let report = process(LangId::Erb, src, false, &Config::empty(), true).unwrap();
+    assert!(report.new_source.is_none());
+    assert_eq!(report.untagged_found, 2);
+    assert_eq!(report.unclassified, 0);
+    assert!(
+        report
+            .untagged_lines
+            .iter()
+            .any(|(_, line)| line.contains("ordinary prose that explains nothing"))
+    );
+    assert!(
+        report
+            .untagged_lines
+            .iter()
+            .any(|(_, line)| line.contains("a trailing untagged comment"))
+    );
+    assert!(
+        !report
+            .untagged_lines
+            .iter()
+            .any(|(_, line)| line.contains("a # hash inside a ruby string"))
+    );
+    assert!(
+        !report
+            .untagged_lines
+            .iter()
+            .any(|(_, line)| line.contains("TRIPWIRE") || line.contains("CONTEXT"))
+    );
 }

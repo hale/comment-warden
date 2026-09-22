@@ -1,0 +1,17 @@
+// TRIPWIRE: this fixture is the scss positive control for the gate. Delete the
+// untagged comments below and a build of the checker that cannot see scss at
+// all still passes.
+
+/* CONTEXT: the block form is the only comment css itself accepts */
+
+// ordinary prose that explains nothing
+
+/* an untagged block comment that the gate removes */
+
+$gutter: 8px;
+
+.panel {
+  content: "// not a comment, just a string";
+  background: url("/* also just a string */");
+  padding: $gutter; // a trailing untagged comment
+}

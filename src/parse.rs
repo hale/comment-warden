@@ -29,6 +29,10 @@ pub fn parse(id: LangId, source: &str, is_test_target: bool, _tags: &[String]) -
         unknown_spans.extend(opaque);
     }
 
+    if id == LangId::Erb {
+        unknown_spans.extend(collect_opaque_erb(&root));
+    }
+
     comments.sort_by_key(|c| c.start_byte);
 
     Ok(Parsed {
@@ -72,6 +76,9 @@ fn detect_generated(root: &Node, src: &[u8], spec: &LangSpec) -> bool {
     let mut comments: Vec<Node> = Vec::new();
     let mut stack = vec![*root];
     while let Some(n) = stack.pop() {
+        if node_holds_data(n.kind()) {
+            continue;
+        }
         if is_comment_kind(spec, n.kind()) {
             comments.push(n);
         }
@@ -111,7 +118,12 @@ fn detect_generated(root: &Node, src: &[u8], spec: &LangSpec) -> bool {
         return false;
     }
 
-    let body = crate::comment::comment_body(first_line, spec.line_prefixes, spec.block_open);
+    let body = crate::comment::comment_body(
+        first_line,
+        spec.line_prefixes,
+        spec.block_open,
+        spec.block_close,
+    );
     body.starts_with("@generated")
 }
 
@@ -129,6 +141,11 @@ fn node_owns_line(node: Node, src: &[u8]) -> bool {
     src[line_start..start]
         .iter()
         .all(|&b| b == b' ' || b == b'\t')
+}
+
+fn node_holds_data(kind: &str) -> bool {
+    // TRIPWIRE: an html attribute value is data, and the grammar parses `<!--` inside one as a real comment node — without this the gate rewrites `class="<!-- x -->"` to `class=""` and the projection cannot see it, because a comment leaf is excluded from the projection.
+    matches!(kind, "quoted_attribute_value")
 }
 
 fn node_is_macro(kind: &str) -> bool {
@@ -156,13 +173,18 @@ fn collect_comments(
     let children: Vec<Node> = node.children(&mut cursor).collect();
 
     for (i, child) in children.iter().enumerate() {
+        if node_holds_data(child.kind()) {
+            continue;
+        }
         if is_comment_kind(spec, child.kind()) {
             let text = std::str::from_utf8(&src[child.byte_range()])
                 .unwrap_or("")
                 .to_string();
             let is_block = child.kind().contains("block")
                 || child.kind() == "multiline_comment"
-                || text.trim_start().starts_with("/*");
+                || spec
+                    .block_open
+                    .is_some_and(|open| text.trim_start().starts_with(open));
             let shape = if is_block {
                 CommentShape::Block
             } else {
@@ -338,6 +360,23 @@ fn collect_embedded_nix(
     }
 
     Ok(opaque)
+}
+
+fn collect_opaque_erb(root: &Node) -> Vec<(usize, usize)> {
+    // TRIPWIRE: report an erb `code` region as opaque rather than ignoring it — the ruby inside `<% %>` is never parsed here, and a fragment like ` if x ` is not standalone ruby, so a `#` line in one is unread, not comment-free.
+    let mut spans = Vec::new();
+    let mut stack = vec![*root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "code" {
+            spans.push((node.start_byte(), node.end_byte()));
+            continue;
+        }
+        let mut cursor = node.walk();
+        for ch in node.children(&mut cursor) {
+            stack.push(ch);
+        }
+    }
+    spans
 }
 
 fn embed_shell_comments(
@@ -574,6 +613,10 @@ pub fn code_tokens(id: LangId, source: &str) -> Result<Vec<Vec<u8>>> {
 }
 
 fn collect_leaves<'a>(node: Node<'a>, spec: &LangSpec, out: &mut Vec<Node<'a>>) {
+    if node_holds_data(node.kind()) {
+        out.push(node);
+        return;
+    }
     if is_comment_kind(spec, node.kind()) {
         return;
     }

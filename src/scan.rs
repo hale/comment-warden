@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
+use ignore::WalkBuilder;
 
 use crate::config::Config;
 use crate::lang::LangId;
@@ -62,7 +63,7 @@ pub fn run(
 ) -> Result<RunTotals> {
     let mut files = Vec::new();
     for p in paths {
-        gather_files(p, excludes, &mut files)?;
+        gather_files(p, excludes, config, &mut files)?;
     }
     files.sort();
     files.dedup();
@@ -96,6 +97,9 @@ pub fn process_one(path: &Path, config: &Config, mode: Mode) -> Result<Option<Fi
     let Some(id) = ext_of(path).and_then(LangId::from_extension) else {
         return Ok(None);
     };
+    if config.path_is_exempt(path) {
+        return Ok(None);
+    }
     let source =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let is_test = is_test_target(path);
@@ -107,37 +111,55 @@ pub fn process_one(path: &Path, config: &Config, mode: Mode) -> Result<Option<Fi
     Ok(Some(report))
 }
 
-fn gather_files(path: &Path, excludes: &HashSet<PathBuf>, out: &mut Vec<PathBuf>) -> Result<()> {
-    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    if excludes.contains(&canonical) || excludes.contains(path) {
-        return Ok(());
-    }
-    let meta =
+fn gather_files(
+    path: &Path,
+    excludes: &HashSet<PathBuf>,
+    config: &Config,
+    out: &mut Vec<PathBuf>,
+) -> Result<()> {
+    // TRIPWIRE: stat the root before walking — the walker resolves a symlink given as its own root even with follow_links off, so without this a symlinked file or dir is scanned (and stripped) through the link.
+    let root_meta =
         std::fs::symlink_metadata(path).with_context(|| format!("stat {}", path.display()))?;
-    if meta.file_type().is_symlink() {
+    if root_meta.file_type().is_symlink() {
         return Ok(());
     }
-    if meta.is_file() {
-        out.push(path.to_path_buf());
+
+    if config.path_is_exempt(path) {
         return Ok(());
     }
-    if meta.is_dir() {
-        if is_ignored_dir(path) {
-            return Ok(());
+
+    let excluded = excludes.clone();
+    let exempt = config.clone();
+    let mut builder = WalkBuilder::new(path);
+    builder
+        .hidden(false)
+        .follow_links(false)
+        // TRIPWIRE: require_git(false) keeps a .gitignore authoritative outside a checkout — a vendored cache in an unpacked tarball or a worktree without .git is the case the walk exists to skip.
+        .require_git(false)
+        .filter_entry(move |entry| {
+            let p = entry.path();
+            if is_ignored_dir(p) || exempt.path_is_exempt(p) {
+                return false;
+            }
+            let canonical = p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+            !excluded.contains(&canonical) && !excluded.contains(p)
+        });
+
+    for result in builder.build() {
+        let entry = result.with_context(|| format!("walking {}", path.display()))?;
+        let Some(file_type) = entry.file_type() else {
+            continue;
+        };
+        if file_type.is_symlink() || !file_type.is_file() {
+            continue;
         }
-        let mut entries: Vec<PathBuf> = std::fs::read_dir(path)
-            .with_context(|| format!("reading dir {}", path.display()))?
-            .map(|e| e.map(|e| e.path()))
-            .collect::<std::result::Result<_, _>>()?;
-        entries.sort();
-        for entry in entries {
-            gather_files(&entry, excludes, out)?;
-        }
+        out.push(entry.into_path());
     }
     Ok(())
 }
 
 fn is_ignored_dir(path: &Path) -> bool {
+    // TRIPWIRE: keep this denylist as a floor under .gitignore — .git is never self-ignored, and a build dir like target or DerivedData is often absent from a repo's own .gitignore (this repo's included).
     matches!(
         path.file_name().and_then(|n| n.to_str()),
         Some(".git" | ".build" | ".direnv" | "target" | "node_modules" | "result" | "DerivedData")

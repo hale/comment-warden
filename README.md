@@ -79,6 +79,14 @@ Exit codes:
   It does not tell you the tree is clean.
 - `3` means the checker could not run. A `3` is never a verdict on your comments.
 
+Walking a directory respects `.gitignore`, `.git/info/exclude`, and your global
+git excludes, so vendored and generated trees are skipped without being listed
+twice. A short denylist (`.git`, `.build`, `.direnv`, `target`, `node_modules`,
+`result`, `DerivedData`) applies underneath that, because a build directory is
+often absent from a repo's own `.gitignore`. Symlinks are never followed or
+scanned, and a path you name on the command line is always visited even if it is
+hidden.
+
 ## Configure
 
 Everything project-specific lives in `comment-warden.toml` at the repo root.
@@ -104,21 +112,57 @@ With no config, every doc comment is judged like any other, which is the honest
 default. `pub` grants nothing, and a doc comment in a test target is never a
 surface.
 
+**Project-specific pragmas.** A comment a tool reads is exempt, because deleting
+it changes what the program does. Widely-known ones are built in (`eslint-disable`,
+`shellcheck`, `rubocop:disable`, `frozen_string_literal:`, `stylelint-disable`,
+webpack's `webpackChunkName:` family, and so on), but no built-in list covers
+every bundler and codegen tool. `exempt_patterns` adds your own. A comment is
+exempt when its body — the text after the comment delimiters are stripped —
+*starts with* one of these strings:
+
+```toml
+exempt_patterns = ["my-bundler-pragma:", "@preserve"]
+```
+
+**Exempt paths.** `exempt_paths` takes glob patterns, matched against each path
+relative to the repo root. A matching file is never read, so nothing in it is
+ever flagged or stripped:
+
+```toml
+exempt_paths = ["db/migrate/**", "vendor/**"]
+```
+
+This is for trees where the question doesn't apply rather than ones where the
+answer is "keep". Applied database migrations are write-once and never rerun, so
+re-litigating a comment in one buys nothing. Vendored or generated config is
+rewritten by the next framework upgrade, and stripping its comments only makes
+that upgrade's diff unreadable.
+
 **The advice prompt.** The SessionStart hook injects a short instruction so the
 model writes only tagged, load-bearing comments in the first place. Override it
 with `advice = "..."` or `advice_file = "docs/comment-policy.md"`.
 
 ## Supported languages
 
-Rust, Swift, Nix, Bash, HCL, Python, TypeScript, JavaScript, Go, C, C++, YAML,
-TOML, CSS. Adding one takes a grammar crate plus a registry row. (JSON and
-Markdown are intentionally absent. JSON has no comments, and the block-level
-Markdown grammar surfaces no comment node to act on.)
+Rust, Swift, Nix, Bash, HCL, Python, Ruby, TypeScript, JavaScript, Go, C, C++,
+YAML, TOML, CSS, SCSS, HTML (also `.mjml`), ERB. Adding one takes a grammar crate
+plus a registry row. (JSON and Markdown are intentionally absent. JSON has no
+comments, and the block-level Markdown grammar surfaces no comment node to act
+on. SQL is absent because no usable grammar crate exists: the only published one
+is `tree-sitter-sql` 0.0.2, which fails to parse `CREATE OR REPLACE FUNCTION`
+and mis-lexes the body of a `'-- …'` string literal as a comment node that
+swallows the closing quote. It also pins tree-sitter 0.19, whose C runtime
+collides symbol-for-symbol with the one in use here.)
 
 Nix gets special handling. A shell script written inside a `''…''` string is
 re-parsed as bash so its `#` comments are seen. A comment found there is only
 ever reported and never stripped, because editing a string's bytes could change
 the program.
+
+ERB is reported but never stripped. A template's text between tags is program
+output, so deleting a `<%# … %>` line changes the rendered whitespace. The ruby
+inside `<% … %>` is not parsed, so a `#` line there is reported as unclassified
+rather than treated as comment-free.
 
 ## Build from source
 
@@ -136,7 +180,10 @@ wiring the tool by hand instead of going through `/plugin install`.
 `.claude/settings.json` registers the strip and advice hooks, so a Claude Code
 session working here gates the code it writes. For the hook to find the binary,
 build it (`nix build` or `cargo build --release`) and set `COMMENT_WARDEN_BIN`, or
-drop it in `bin/`. On top of that, CI gates `src/` on every run via the
+drop it in `bin/`. The dev shell points `CARGO_TARGET_DIR` outside the checkout,
+so take the path from `cargo build --release --message-format=json` rather than
+assuming `./target/release/` — an in-tree `target/` here is a leftover from some
+earlier build, and checking with a stale binary reads as a rule that regressed. On top of that, CI gates `src/` on every run via the
 `comment-warden-self-check` flake check, so the crate has to pass its own rule to
 build.
 
