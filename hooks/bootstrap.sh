@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # On session start, fetch the comment-warden binary for this platform into the
 # plugin's persistent data dir, so the strip hook has something to run without
-# the user building it by hand. The repo is private, so the download uses the
-# user's existing `gh` auth. Silent and best-effort: any failure just leaves the
+# the user building it by hand. The repo is public, so the download needs no
+# auth; `gh` is used only because it already knows how to find and unpack the
+# right release asset. Silent and best-effort: any failure just leaves the
 # binary absent, and the strip hook reports that on its own. Delete the cached
 # binary to force a re-fetch (e.g. after a plugin update).
 set -uo pipefail
